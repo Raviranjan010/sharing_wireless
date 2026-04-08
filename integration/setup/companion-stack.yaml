@@ -1,0 +1,179 @@
+Resources:
+  PreCreatedVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+
+  PreCreatedSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: PreCreatedVpc
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone:
+        Fn::Select:
+        - 0
+        - Fn::GetAZs: ''
+
+  PreCreatedSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: PreCreatedVpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone:
+        Fn::Select:
+        - 1
+        - Fn::GetAZs: ''
+
+  PreCreatedInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  PreCreatedAttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: PreCreatedVpc
+      InternetGatewayId:
+        Ref: PreCreatedInternetGateway
+
+  PreCreatedS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+
+  LMIKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS Key for Lambda Capacity Provider Resource
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: Enable IAM User Permissions
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+          Action: kms:*
+          Resource: '*'
+        - Sid: Allow Lambda service
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action:
+          - kms:Decrypt
+          - kms:DescribeKey
+          Resource: '*'    # Lambda Managed Instances (LMI) VPC Resources
+
+  LMIVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-VPC"
+
+  LMIPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LMIVpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-PrivateSubnet"
+
+  LMIPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LMIVpc
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-PrivateRT"
+
+  LMIPrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref LMIPrivateSubnet
+      RouteTableId: !Ref LMIPrivateRouteTable
+
+  LMISecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for capacity provider Lambda functions
+      VpcId: !Ref LMIVpc
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 10.0.0.0/16
+        Description: Allow HTTPS within VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-LambdaSG"
+
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC endpoints
+      VpcId: !Ref LMIVpc
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 10.0.0.0/16
+        Description: Allow HTTPS from within VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-VPCEndpointSG"
+
+  CloudWatchLogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref LMIVpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+      - !Ref LMIPrivateSubnet
+      SecurityGroupIds:
+      - !Ref VPCEndpointSecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-CloudWatchLogsEndpoint"
+Outputs:
+  PreCreatedVpc:
+    Description: Pre-created VPC that can be used inside other tests
+    Value:
+      Ref: PreCreatedVpc
+  PreCreatedSubnetTwo:
+    Description: 'Pre-created #2 subnet that can be used inside other tests'
+    Value:
+      Ref: PreCreatedSubnetTwo
+  PreCreatedSubnetOne:
+    Description: 'Pre-created #1 subnet that can be used inside other tests'
+    Value:
+      Ref: PreCreatedSubnetOne
+  PreCreatedInternetGateway:
+    Description: Pre-created Internet Gateway that can be used inside other tests
+    Value:
+      Ref: PreCreatedInternetGateway
+  PreCreatedAttachGateway:
+    Description: Pre-created Attach Gateway that can be used inside other tests
+    Value:
+      Ref: PreCreatedAttachGateway
+  PreCreatedS3Bucket:
+    Description: Pre-created S3 Bucket that can be used inside other tests
+    Value:
+      Ref: PreCreatedS3Bucket
+  LMISubnetId:
+    Description: Private subnet ID for Lambda functions
+    Value: !Ref LMIPrivateSubnet
+  LMISecurityGroupId:
+    Description: Security group ID for Lambda functions
+    Value: !Ref LMISecurityGroup
+  LMIKMSKeyArn:
+    Description: ARN of the KMS key for Capacity Provider
+    Value: !GetAtt LMIKMSKey.Arn
+Metadata:
+  SamTransformTest: true

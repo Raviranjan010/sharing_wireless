@@ -1,0 +1,6 @@
+boto3>=1.34.0,<2.0.0
+jsonschema<5,>=4.23
+typing_extensions>=4.4
+
+# resource validation & schema generation
+pydantic~=2.12.5
